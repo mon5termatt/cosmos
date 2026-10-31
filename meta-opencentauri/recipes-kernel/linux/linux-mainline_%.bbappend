@@ -19,7 +19,14 @@ SRC_URI:append = " \
 	file://0003-riscv-dts-allwinner-d1-Add-pwm-node.patch \
 	file://0001-Make-CONFIG_FB-select-CONFIG_FB_BACKLIGHT.patch \
 	file://0001-Add-support-for-st77922-touchscreen-driver.patch \
+	file://inject-ace-usb-quirks.py \
 "
 
 KERNEL_MODULE_PROBECONF += "rtw88_core"
 module_conf_rtw88_core = "options rtw88_core disable_lps_deep=Y"
+
+# Anycubic ACE Pro (28e9:018a) + Genesys hub (05e3:0610): bake USB quirks
+# into quirks.c so -71 wedges are less likely under feed load.
+do_configure:prepend() {
+	python3 ${UNPACKDIR}/inject-ace-usb-quirks.py ${S}/drivers/usb/core/quirks.c
+}

@@ -38,21 +38,26 @@ Ship and run from [cosmoace_afc](https://github.com/shawn-makes-stuff/cosmoace_a
 `tools/ace-usb-harden/install.sh` on the printer. That is the supported
 day-to-day path.
 
-## Optional Cosmos image / bootargs
+## OS patch (kernel + bootargs)
 
-This recipe stays in the Yocto tree for optional image inclusion. It is
-**not** added to `CORE_IMAGE_EXTRA_INSTALL` by default.
+Branch `ace-usb-harden` patches Cosmos itself:
 
-U-Boot env files for carbon-1/2 on branch `ace-usb-harden` append:
+1. **U-Boot** `setargs_mainline` — `usbcore.autosuspend=-1` and
+   `usbcore.quirks=28e9:018a:bgkno,05e3:0610:ko,1a86:8091:k`
+2. **Kernel** `inject-ace-usb-quirks.py` (from `linux-mainline_%.bbappend`)
+   inserts the same ACE + Genesys quirks into `drivers/usb/core/quirks.c`
+   at configure time so a rebuilt `zImage` carries them without cmdline.
 
+Live printers (no image rebuild yet):
+
+```sh
+sh tools/ace-usb-harden/patch-bootargs.sh   # fw_setenv + live sysfs
+# power-cycle ACE if wedged, then reboot the printer
 ```
-usbcore.autosuspend=-1 usbcore.quirks=28e9:018a:bk
-```
 
-To bake into a custom image: `IMAGE_INSTALL:append = " ace-usb-harden"` (or
-add to `cosmos-image-base.bb`), bitbake, flash. Bootargs need the new U-Boot
-env written; until then live deploy sets sysfs `autosuspend`/`quirks`
-best-effort.
+Optional package `ace-usb-harden` (udev + stay-awake daemons) is still
+installable via the cosmoace_afc installer; it is **not** in
+`CORE_IMAGE_EXTRA_INSTALL` by default.
 
 ## Validation (2026-10-31 live soak)
 

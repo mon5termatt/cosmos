@@ -1,18 +1,24 @@
 #!/bin/sh
-# Rate-limited hub reauth when the ACE port wedges with -71.
-# Toggles the Genesys hub (typically 1-1.4) authorized 0→1 at most once/min.
+# ACE USB wedge watcher.
+#
+# A hard -71 wedge (ACE or Genesys hub can't enumerate / "can't set config")
+# cannot be cleared by toggling hub `authorized`. Only power-cycling the ACE
+# (its own PSU / wall plug) brings it back. This daemon does NOT hammer
+# reauth — that just logs Protocol errors and can make the hub worse.
+#
+# It watches for the ACE disappearing with -71 noise and logs once that a
+# power cycle is required. When the ACE returns, the latch clears.
+#
+# Soft flaps (ACE firmware watchdog re-enum, no -71) are left alone; AFC's
+# own reconnect + grace handles those.
 
 SYSFS_USB="${ACE_SYSFS_USB:-/sys/bus/usb/devices}"
 EVENT_LOG="${ACE_USB_EVENT_LOG:-/user-resource/ace-addon/usb-events.log}"
 INTERVAL="${ACE_USB_RECOVER_INTERVAL:-5}"
 GONE_S="${ACE_USB_RECOVER_GONE_S:-20}"
-COOLDOWN_S="${ACE_USB_RECOVER_COOLDOWN_S:-60}"
 STATE_DIR="${ACE_USB_RECOVER_STATE:-/var/run}"
-LAST_REAUTH="${STATE_DIR}/ace-usb-reauth.ts"
 GONE_SINCE="${STATE_DIR}/ace-usb-gone.ts"
-# Never reauth 1-1 (QinHeng): WiFi/camera share that hub and dropping it
-# kills SSH. Only the Genesys hub that carries the ACE (typically 1-1.4).
-HUB_CANDIDATES="1-1.4"
+WEDGE_LATCH="${STATE_DIR}/ace-usb-wedge.latch"
 
 log_usb_event() {
     mkdir -p "$(dirname "$EVENT_LOG")" 2>/dev/null || true
@@ -37,44 +43,10 @@ ace_present() {
     return 1
 }
 
-recent_minus71() {
-    dmesg | tail -n 80 | grep -qE '1-1\.4.*-71|error -71'
-}
-
-find_hub() {
-    for h in $HUB_CANDIDATES; do
-        if [ -f "${SYSFS_USB}/${h}/authorized" ]; then
-            echo "${SYSFS_USB}/${h}"
-            return 0
-        fi
-    done
-    # Fall back to Genesys hub only if it is under 1-1.* (not a random port).
-    for d in "$SYSFS_USB"/1-1.*/; do
-        [ -f "${d}idVendor" ] || continue
-        [ "$(cat "${d}idVendor" 2>/dev/null)" = "05e3" ] || continue
-        [ "$(cat "${d}idProduct" 2>/dev/null)" = "0610" ] || continue
-        echo "${d%/}"
-        return 0
-    done
-    return 1
-}
-
-reauth_hub() {
-    hub=$1
-    [ -f "${hub}/authorized" ] || return 1
-    now=$(date +%s)
-    if [ -f "$LAST_REAUTH" ]; then
-        last=$(cat "$LAST_REAUTH" 2>/dev/null || echo 0)
-        age=$((now - last))
-        if [ "$age" -lt "$COOLDOWN_S" ]; then
-            return 0
-        fi
-    fi
-    log_usb_event "ACE_HUB_REAUTH hub=$(basename "$hub") reason=gone_with_-71"
-    echo 0 > "${hub}/authorized" 2>/dev/null || true
-    sleep 2
-    echo 1 > "${hub}/authorized" 2>/dev/null || true
-    echo "$now" > "$LAST_REAUTH"
+# Hard wedge signatures in recent dmesg (hub/ACE protocol death, not a clean re-enum).
+hard_wedge() {
+    dmesg | tail -n 100 | grep -qE \
+        '1-1\.4.*error -71|can.t read configurations, error -71|can.t set config.*-71|unable to enumerate USB device|hub_ext_port_status failed'
 }
 
 LOCKFILE="${ACE_USB_RECOVER_LOCK:-/var/run/ace-usb-recover.lock}"
@@ -84,17 +56,27 @@ flock -n 9 || exit 0
 echo $$ > "$PIDFILE"
 
 if [ "$1" = "--once" ]; then
-    if ! ace_present && recent_minus71; then
-        hub=$(find_hub) && reauth_hub "$hub"
+    if ace_present; then
+        rm -f "$WEDGE_LATCH" "$GONE_SINCE"
+        echo "ACE present"
+        exit 0
     fi
-    exit 0
+    if hard_wedge; then
+        echo "ACE hard -71 wedge: power-cycle the ACE (hub reauth will not clear this)"
+        exit 2
+    fi
+    echo "ACE absent (no hard-wedge signature yet)"
+    exit 1
 fi
 
-log_usb_event "recover_start pid=$$"
+log_usb_event "recover_start pid=$$ mode=watch_only"
 
 while :; do
     if ace_present; then
-        rm -f "$GONE_SINCE"
+        if [ -f "$WEDGE_LATCH" ]; then
+            log_usb_event "ACE_BACK after power-cycle or re-enum"
+        fi
+        rm -f "$GONE_SINCE" "$WEDGE_LATCH"
     else
         now=$(date +%s)
         if [ ! -f "$GONE_SINCE" ]; then
@@ -102,12 +84,11 @@ while :; do
         else
             since=$(cat "$GONE_SINCE" 2>/dev/null || echo "$now")
             gone=$((now - since))
-            if [ "$gone" -ge "$GONE_S" ] && recent_minus71; then
-                hub=$(find_hub) || hub=""
-                if [ -n "$hub" ]; then
-                    reauth_hub "$hub"
-                    echo "$(date +%s)" > "$GONE_SINCE"
-                fi
+            if [ "$gone" -ge "$GONE_S" ] && hard_wedge && [ ! -f "$WEDGE_LATCH" ]; then
+                echo "$now" > "$WEDGE_LATCH"
+                log_usb_event "ACE_HARD_WEDGE gone=${gone}s — power-cycle the ACE (its wall power). Hub authorized toggle cannot clear -71."
+                echo "ACE USB hard wedge (-71): power-cycle the ACE unit" \
+                    >/tmp/ace-usb-wedge.msg 2>/dev/null || true
             fi
         fi
     fi
