@@ -1,0 +1,49 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          ace-usb-power
+# Required-Start:    $local_fs
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Keep ACE USB hubs from autosuspend
+### END INIT INFO
+
+SCRIPT=/usr/sbin/ace-usb-power.sh
+[ -x "$SCRIPT" ] || SCRIPT=/user-resource/ace-addon/ace-usb-power.sh
+PIDFILE=/var/run/ace-usb-power.pid
+
+case "$1" in
+    start)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "ace-usb-power already running (pid $(cat "$PIDFILE"))"
+            exit 0
+        fi
+        # Pin once immediately, then daemonize the reinforcer.
+        "$SCRIPT" --once 2>/dev/null || true
+        start-stop-daemon -S -b -m -p "$PIDFILE" -x "$SCRIPT"
+        echo "ace-usb-power started"
+        ;;
+    stop)
+        start-stop-daemon -K -p "$PIDFILE" 2>/dev/null || true
+        rm -f "$PIDFILE" /var/run/ace-usb-power.lock
+        echo "ace-usb-power stopped"
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "ace-usb-power running (pid $(cat "$PIDFILE"))"
+        else
+            echo "ace-usb-power not running"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
+exit 0

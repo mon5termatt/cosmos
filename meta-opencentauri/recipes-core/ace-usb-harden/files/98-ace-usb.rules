@@ -1,0 +1,14 @@
+# Keep Anycubic ACE Pro (and the hubs it sits behind) from USB autosuspend.
+# Full-speed CDC on a HS hub + autosuspend → error -71 / port wedges.
+
+# ACE Pro (GD32 CDC-ACM)
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="28e9", ATTR{idProduct}=="018a", \
+  ATTR{power/control}="on", ATTR{power/autosuspend}="-1", ATTR{power/autosuspend_delay_ms}="-1"
+
+# QinHeng hub (printer-side USB HUB in front of the ACE)
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="8091", \
+  ATTR{power/control}="on", ATTR{power/autosuspend}="-1", ATTR{power/autosuspend_delay_ms}="-1"
+
+# Genesys Logic hub (ACE-side USB2.0 Hub)
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="05e3", ATTR{idProduct}=="0610", \
+  ATTR{power/control}="on", ATTR{power/autosuspend}="-1", ATTR{power/autosuspend_delay_ms}="-1"

@@ -1,0 +1,47 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          ace-usb-recover
+# Required-Start:    $local_fs
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Reauth ACE hub after -71 wedges
+### END INIT INFO
+
+SCRIPT=/usr/sbin/ace-usb-recover.sh
+[ -x "$SCRIPT" ] || SCRIPT=/user-resource/ace-addon/ace-usb-recover.sh
+PIDFILE=/var/run/ace-usb-recover.pid
+
+case "$1" in
+    start)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "ace-usb-recover already running (pid $(cat "$PIDFILE"))"
+            exit 0
+        fi
+        start-stop-daemon -S -b -m -p "$PIDFILE" -x "$SCRIPT"
+        echo "ace-usb-recover started"
+        ;;
+    stop)
+        start-stop-daemon -K -p "$PIDFILE" 2>/dev/null || true
+        rm -f "$PIDFILE" /var/run/ace-usb-recover.lock
+        echo "ace-usb-recover stopped"
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "ace-usb-recover running (pid $(cat "$PIDFILE"))"
+        else
+            echo "ace-usb-recover not running"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
+exit 0
