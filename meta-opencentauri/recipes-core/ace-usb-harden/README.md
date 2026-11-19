@@ -43,7 +43,7 @@ day-to-day path.
 Branch `ace-usb-harden` patches Cosmos itself:
 
 1. **U-Boot** `setargs_mainline` — `usbcore.autosuspend=-1` and
-   `usbcore.quirks=28e9:018a:bgkno,05e3:0610:ko,1a86:8091:k`
+   `usbcore.quirks=28e9:018a:bgkno,05e3:0610:ko` (never quirk `1a86:8091` — WiFi lives on that hub)
 2. **Kernel** `inject-ace-usb-quirks.py` (from `linux-mainline_%.bbappend`)
    inserts the same ACE + Genesys quirks into `drivers/usb/core/quirks.c`
    at configure time so a rebuilt `zImage` carries them without cmdline.
